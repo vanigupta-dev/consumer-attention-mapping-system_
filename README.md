@@ -1,11 +1,11 @@
 # Consumer Attention Mapping System
 
-An enterprise analytics and computer vision architecture designed to process, analyze, and track consumer attention dynamics and visual engagement metrics across targeted touchpoints.
+An enterprise analytics and computer vision framework for processing, analyzing, and tracking consumer attention dynamics and visual engagement metrics across targeted touchpoints.
 
 ##  Core Engineering Tasks
-* **Attention Extraction Infrastructure:** Developed and refined deep learning models to map user attention sequences and telemetry data.
-* **Pipeline Optimization:** Engineered modular scripts to ingest structural datasets while optimizing latency overheads.
-* **Environment Configuration:** Containerized localized services using Docker to match enterprise runtime environments.
+* **Attention Extraction Infrastructure:** Developed and improved deep learning models to map users’ attention sequences and telemetry data.
+* **Pipeline Optimization:** Developed modular scripts to consume structural datasets with optimized latency overheads.
+* **Environment Configuration:** Docker containerization of local services to mimic enterprise runtimes.
 
 ---
 
@@ -25,4 +25,4 @@ To maintain strict project workflows and team branch boundaries, this workspace 
   </tr>
 </table>
 
-_All functional commits, pipeline files, and architectural modifications reside exclusively within the tracking logs of the `Vani_G` development branch._
+_All functional commits, pipeline files, and architectural modifications are only present in the tracking logs of the `Vani_G` development branch._
