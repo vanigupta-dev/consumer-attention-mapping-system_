@@ -4,12 +4,14 @@ from contextlib import asynccontextmanager
 from app.services.video import ThreadedVideoIngest
 from app.core.db import engine, Base
 
+#  1. IMPORT YOUR ROUTERS HERE
+from app.api import auth, store
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("[STARTUP] Syncing Database Layout with PostgreSQL...")
     Base.metadata.create_all(bind=engine)
 
-    # Read user choice from Environment Variable (Defaults to 'B' if blank)
     user_choice = os.getenv("VIDEO_SOURCE_CHOICE", "B").strip().upper()
 
     print("=" * 50)
@@ -31,16 +33,25 @@ async def lifespan(app: FastAPI):
 
     print("=" * 50)
 
-    # Boot the stream engine
     app.state.video_stream = ThreadedVideoIngest(source=video_source)
     app.state.video_stream.start_processing()
 
     yield
 
     print("[SHUTDOWN] Safely unlinking background media streams...")
-    app.state.video_stream.stop_processing()
+    stop_method = getattr(app.state.video_stream, "stop_processing", None)
+    if stop_method is None:
+        stop_method = getattr(app.state.video_stream, "stop", None)
+    if stop_method:
+        stop_method()
+    else:
+        print("[SHUTDOWN] No stop method found on video stream object.")
 
 app = FastAPI(lifespan=lifespan)
+
+#  2. INCLUDE YOUR ROUTERS HERE SO SWAGGER CAN SEE THEM
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(store.router, prefix="/api/store", tags=["Store Analytics"])
 
 @app.get("/")
 def home():
