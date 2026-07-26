@@ -6,6 +6,7 @@ import typing as _typing
 
 
 from cv2.utils import fs as fs
+from cv2.utils import logging as logging
 from cv2.utils import nested as nested
 
 

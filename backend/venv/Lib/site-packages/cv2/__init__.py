@@ -26,14 +26,14 @@ def __load_extra_py_code_for_module(base, name, enable_debug_print=False):
     native_module = sys.modules.pop(module_name, None)
     try:
         py_module = importlib.import_module(module_name)
-    except ImportError as err:
+    except (ImportError, AttributeError) as err:
         if enable_debug_print:
             print("Can't load Python code for module:", module_name,
                   ". Reason:", err)
         # Extension doesn't contain extra py code
         return False
 
-    if not hasattr(base, name):
+    if base in sys.modules and not hasattr(sys.modules[base], name):
         setattr(sys.modules[base], name, py_module)
     sys.modules[export_module_name] = py_module
     # If it is C extension module it is already loaded by cv2 package
