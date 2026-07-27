@@ -1,202 +1,181 @@
 import cv2
-import threading
 import time
+import numpy as np
+from typing import Dict, Any, Tuple
+from ultralytics import YOLO
+import mediapipe as mp
 
-def calculate_box_center(x: int, y: int, width: int, height: int) -> tuple[int, int]:
-    """Computes spatial center point (X, Y) of a bounding box."""
-    return int(x + (width / 2)), int(y + (height / 2))
+# MediaPipe Setup
+mp_face_mesh = mp.solutions.face_mesh
 
-
-class ThreadedVideoIngest:
-    # 1. LOCAL ASSET REGISTRY (Sub-choices for local video mode)
-    LOCAL_ASSETS = {
-        "grocery": "app/assets/grocery_dwell.mp4",
-        "electronics": "app/assets/electronics_display.mp4",
-        "apparel": "app/assets/apparel_checkout.mp4"
+SPATIAL_PARAMS_DB = {
+    101: {
+        "store_name": "Electronics Dept",
+        "zone_name": "Premium Displays",
+        "zone_bbox": (100, 100, 500, 400)
     }
+}
 
-    # Map local sub-choices to their default store IDs
-    LOCAL_STORE_MAP = {
-        "grocery": 101,
-        "electronics": 102,
-        "apparel": 103
-    }
+# Standard 3D model points for Head Pose (in mm)
+MODEL_POINTS_3D = np.array([
+    (0.0, 0.0, 0.0),             # Nose tip
+    (0.0, -330.0, -65.0),        # Chin
+    (-225.0, 170.0, -135.0),     # Left eye left corner
+    (225.0, 170.0, -135.0),      # Right eye right corner
+    (-150.0, -150.0, -125.0),    # Left Mouth corner
+    (150.0, -150.0, -125.0)      # Right mouth corner
+], dtype=np.float64)
 
-    # 2. DYNAMIC SPATIAL PARAMETERS (Per Store/Camera ID)
-    # In production, these boundaries are fetched from PostgreSQL via FastAPI
-    SPATIAL_PARAMS_DB = {
-        101: {
-            "name": "Grocery Beverage Aisle",
-            "resolution": "1920x1080",
-            "shelf_zone": {"x_min": 100, "y_min": 100, "x_max": 500, "y_max": 900}
-        },
-        102: {
-            "name": "Electronics High-Value Shelf",
-            "resolution": "1920x1080",
-            "shelf_zone": {"x_min": 300, "y_min": 200, "x_max": 800, "y_max": 700}
-        },
-        103: {
-            "name": "Apparel Checkout Queue",
-            "resolution": "1920x1080",
-            "shelf_zone": {"x_min": 50, "y_min": 300, "x_max": 600, "y_max": 1000}
-        },
-        201: {
-            "name": "Overhead Ceiling CCTV (Live RTSP Stream)",
-            "resolution": "2560x1440",
-            "shelf_zone": {"x_min": 800, "y_min": 400, "x_max": 1800, "y_max": 1200}
-        },
-        999: {
-            "name": "Desk Testing Webcam Sandbox",
-            "resolution": "640x480",
-            "shelf_zone": {"x_min": 20, "y_min": 50, "x_max": 300, "y_max": 400}
-        }
-    }
 
-    def __init__(self, mode: str = "local", sub_choice: str = "grocery", rtsp_url: str = "", store_id: int = 0):
-        """
-        Handles dynamic ingestion binding based on user choices:
-        - mode: 'local', 'webcam', or 'live_stream'
-        - sub_choice: 'grocery', 'electronics', or 'apparel' (Used when mode='local')
-        - rtsp_url: Custom RTSP address string (Used when mode='live_stream')
-        - store_id: Optional explicit store override
-        """
-        self.mode = mode.lower()
-        self.sub_choice = sub_choice.lower()
+class ShopperTrackerEngine:
+    def __init__(self, model_size: str = "yolov8n.pt", store_id: int = 101):
+        self.store_id = store_id
+        self.spatial_config = SPATIAL_PARAMS_DB.get(store_id, {})
 
-        # Resolve source and store_id based on user selections
-        if self.mode == "webcam":
-            self.source = 0
-            self.store_id = store_id if store_id else 999
+        # 1. Load YOLOv8 Model
+        print(f"[INFO] Loading YOLOv8 model ({model_size})...")
+        self.model = YOLO(model_size)
 
-        elif self.mode == "live_stream":
-            self.source = rtsp_url if rtsp_url else "rtsp://admin:password@192.168.1.50:554/live"
-            self.store_id = store_id if store_id else 201
+        # 2. Load MediaPipe Face Mesh
+        self.face_mesh = mp_face_mesh.FaceMesh(
+            static_image_mode=False,
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
 
-        elif self.mode == "local":
-            # Map selected sub-choice (grocery, electronics, apparel)
-            self.source = self.LOCAL_ASSETS.get(self.sub_choice, self.LOCAL_ASSETS["grocery"])
-            self.store_id = store_id if store_id else self.LOCAL_STORE_MAP.get(self.sub_choice, 101)
+        self.active_shopper_dwells: Dict[int, Dict[str, Any]] = {}
 
+    def is_inside_zone(self, center_x: int, center_y: int, zone_bbox: Tuple[int, int, int, int]) -> bool:
+        x_min, y_min, x_max, y_max = zone_bbox
+        return x_min <= center_x <= x_max and y_min <= center_y <= y_max
+
+    def estimate_head_pose(self, head_crop) -> str:
+        """Runs MediaPipe Face Mesh and returns estimated orientation string (Forward, Left, Right)."""
+        h, w, _ = head_crop.shape
+        if h < 20 or w < 20:
+            return "Unknown"
+
+        rgb_crop = cv2.cvtColor(head_crop, cv2.COLOR_BGR2RGB)
+        results = self.face_mesh.process(rgb_crop)
+
+        if not results.multi_face_landmarks:
+            return "No Face Detected"
+
+        landmarks = results.multi_face_landmarks[0].landmark
+
+        # Select 2D landmark points matching 3D model
+        landmark_indices = [1, 152, 33, 263, 61, 291]
+        image_points_2d = np.array([
+            (landmarks[idx].x * w, landmarks[idx].y * h)
+            for idx in landmark_indices
+        ], dtype=np.float64)
+
+        # Camera Intrinsic matrix approximation
+        focal_length = w
+        center = (w / 2, h / 2)
+        camera_matrix = np.array([
+            [focal_length, 0, center[0]],
+            [0, focal_length, center[1]],
+            [0, 0, 1]
+        ], dtype=np.float64)
+
+        dist_coeffs = np.zeros((4, 1)) # Assuming zero lens distortion
+
+        # Solve PnP
+        success, rotation_vector, translation_vector = cv2.solvePnP(
+            MODEL_POINTS_3D, image_points_2d, camera_matrix, dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE
+        )
+
+        if not success:
+            return "Unknown"
+
+        # Convert Rotation Vector to Euler Angles
+        rmat, _ = cv2.Rodrigues(rotation_vector)
+        angles, _, _, _, _, _ = cv2.RQDecomp3x3(rmat)
+        yaw = angles[1] # Y-axis rotation (Left/Right look)
+
+        if yaw > 12:
+            return "Looking Right"
+        elif yaw < -12:
+            return "Looking Left"
         else:
-            raise ValueError(f"Invalid mode '{mode}'. Choose from: 'local', 'webcam', 'live_stream'")
+            return "Looking Forward"
 
-        # Fetch spatial parameters matching resolved store_id
-        self.active_spatial_zones = self._get_spatial_zones_for_store(self.store_id)
+    def process_frame(self, frame):
+        results = self.model.track(
+            source=frame,
+            persist=True,
+            classes=[0], # Class 0 = Person
+            tracker="bytetrack.yaml",
+            verbose=False
+        )
 
-        self.cap = None
-        self.is_running = False
-        self.thread = None
-        self.fallback_source = "app/assets/grocery_dwell.mp4"
+        zone_bbox = self.spatial_config.get("zone_bbox")
+        zone_name = self.spatial_config.get("zone_name", "Unknown Zone")
 
-    def _get_spatial_zones_for_store(self, store_id: int) -> dict:
-        """Retrieves spatial boundary parameters for the active store_id."""
-        return self.SPATIAL_PARAMS_DB.get(store_id, self.SPATIAL_PARAMS_DB[101])
+        # Draw Zone Boundary
+        if zone_bbox:
+            cv2.rectangle(frame, (zone_bbox[0], zone_bbox[1]), (zone_bbox[2], zone_bbox[3]), (255, 0, 0), 2)
 
-    def start_processing(self):
-        self.is_running = True
-        self.thread = threading.Thread(target=self._capture_loop, daemon=True)
-        self.thread.start()
+        if results[0].boxes is not None and results[0].boxes.id is not None:
+            boxes = results[0].boxes.xyxy.numpy()
+            track_ids = results[0].boxes.id.numpy().astype(int)
 
-    def _capture_loop(self):
-        self.cap = cv2.VideoCapture(self.source)
+            for box, track_id in zip(boxes, track_ids):
+                x1, y1, x2, y2 = map(int, box)
 
-        # FAULT-TOLERANT FAILOVER
-        if not self.cap.isOpened():
-            print(f"\n[WARN] Source '{self.source}' unavailable or unreachable!")
-            print("[WARN] Activating Enterprise Fault-Tolerant Failover Engine...")
-            self.source = self.fallback_source
-            self.store_id = 101
-            self.active_spatial_zones = self._get_spatial_zones_for_store(101)
-            self.cap = cv2.VideoCapture(self.source)
+                # Spatial Center Calculation
+                center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
+                in_zone = self.is_inside_zone(center_x, center_y, zone_bbox) if zone_bbox else False
+                color = (0, 0, 255) if in_zone else (0, 255, 0)
 
-        print(f"\n[OPENCV] Active Pipeline Running | Mode: {self.mode.upper()} | Source: {self.source}")
-        print(f"[SPATIAL SETUP] Store ID: {self.store_id} | Zone: {self.active_spatial_zones['name']}")
-        print(f"[SPATIAL BOUNDS] Resolution: {self.active_spatial_zones['resolution']} | Coordinates: {self.active_spatial_zones['shelf_zone']}\n")
+                # --- TASK 3: Crop Upper Bounding Box (Head) & Estimate Gaze ---
+                head_height = max(10, int((y2 - y1) * 0.35)) # Top 35% of box
+                head_crop = frame[max(0, y1):max(0, y1 + head_height), max(0, x1):max(0, x2)]
 
-        while self.is_running:
-            ret, frame = self.cap.read()
-            if not ret:
-                if isinstance(self.source, str) and ("mp4" in self.source or "assets" in self.source):
-                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    continue
-                time.sleep(0.03)
-                continue
+                gaze_direction = "Unknown"
+                if head_crop.size > 0:
+                    gaze_direction = self.estimate_head_pose(head_crop)
 
-            current_frame = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
+                # Visual Overlay
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(frame, f"Shopper #{track_id} [{gaze_direction}]",
+                            (x1, max(15, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-            # Simulated detection bounding box [x, y, w, h]
-            sample_bbox = (150, 200, 100, 300)
-            center_x, center_y = calculate_box_center(*sample_bbox)
+                # Dwell Time Logging
+                if in_zone:
+                    if track_id not in self.active_shopper_dwells:
+                        self.active_shopper_dwells[track_id] = {"entry_time": time.time()}
+                        print(f"[TRIGGER] Shopper #{track_id} ENTERED zone: {zone_name}")
+                    else:
+                        dwell_time = round(time.time() - self.active_shopper_dwells[track_id]["entry_time"], 1)
+                        cv2.putText(frame, f"Dwell: {dwell_time}s", (x1, y2 + 20),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
-            # 1. DRAW VISUAL FEEDBACK ON FRAME
-            cv2.rectangle(frame, (150, 200), (250, 500), (0, 255, 0), 2)
-            cv2.circle(frame, (center_x, center_y), 6, (0, 0, 255), -1)
-            cv2.putText(frame, f"Center: ({center_x}, {center_y})", (150, 180),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        return frame
 
-            # 2. POP UP LIVE CAMERA WINDOW
-            try:
-                cv2.imshow(f"Live Ingest - Mode: {self.mode.upper()}", frame)
+def run_pipeline(source=0, store_id=101):
+    cap = cv2.VideoCapture(source)
+    engine = ShopperTrackerEngine(store_id=store_id)
 
-                # Press 'q' to close the visual window safely
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    self.is_running = False
-                    break
-            except cv2.error:
-                pass  # Handle cases where the window cannot be displayed (e.g., headless environments)
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-            # Processing simulated telemetry every 60 frames
-            if current_frame % 60 == 0:
-                zone = self.active_spatial_zones['shelf_zone']
-                is_inside = (zone['x_min'] <= center_x <= zone['x_max']) and (zone['y_min'] <= center_y <= zone['y_max'])
+        processed_frame = engine.process_frame(frame)
 
-                print(f"[ANALYTICS] Store ID: {self.store_id} ({self.active_spatial_zones['name']}) | Frame: {current_frame}")
-                print(f"            Computed Center: ({center_x}, {center_y})")
-                print(f"            Inside Monitored Zone? -> {is_inside}\n")
+        try:
+            cv2.imshow("Milestone 2 - Shopper & Gaze Ingest Engine", processed_frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        except cv2.error:
+            pass
 
-            time.sleep(0.03)
+    cap.release()
+    cv2.destroyAllWindows()
 
-        # Clean up OpenCV windows when loop stops
-        self.cap.release()
-        cv2.destroyAllWindows()
-
-
-# ==========================================
-# INTERACTIVE CLI DEMO MENU
-# ==========================================
 if __name__ == "__main__":
-    print("===========================================")
-    print(" CONSUMER ATTENTION MAPPING - VIDEO INGEST ")
-    print("===========================================")
-    print("Select Stream Input Mode:")
-    print(" 1. Local Video File")
-    print(" 2. Live Webcam")
-    print(" 3. RTSP Live Stream")
-
-    mode_choice = input("\nEnter choice (1-3) [Default=1]: ").strip()
-
-    if mode_choice == "2":
-        ingest = ThreadedVideoIngest(mode="webcam")
-    elif mode_choice == "3":
-        rtsp = input("Enter RTSP Stream URL (Press Enter for default): ").strip()
-        ingest = ThreadedVideoIngest(mode="live_stream", rtsp_url=rtsp if rtsp else "")
-    else:
-        print("\nSelect Local Video Sub-Choice:")
-        print(" a. Grocery Aisle (grocery)")
-        print(" b. Electronics Shelf (electronics)")
-        print(" c. Apparel Checkout (apparel)")
-        sub = input("Enter sub-choice (a/b/c) [Default=a]: ").strip().lower()
-
-        sub_map = {"a": "grocery", "b": "electronics", "c": "apparel"}
-        selected_sub = sub_map.get(sub, "grocery")
-
-        ingest = ThreadedVideoIngest(mode="local", sub_choice=selected_sub)
-
-    # Start ingestion thread
-    ingest.start_processing()
-
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n[INFO] Stopping Video Ingestion Engine.")
+    run_pipeline(source=0, store_id=101)
