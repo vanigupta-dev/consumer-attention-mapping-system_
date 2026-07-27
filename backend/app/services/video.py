@@ -120,8 +120,8 @@ class ShopperTrackerEngine:
             cv2.rectangle(frame, (zone_bbox[0], zone_bbox[1]), (zone_bbox[2], zone_bbox[3]), (255, 0, 0), 2)
 
         if results[0].boxes is not None and results[0].boxes.id is not None:
-            boxes = results[0].boxes.xyxy.numpy()
-            track_ids = results[0].boxes.id.numpy().astype(int)
+            boxes = results[0].boxes.xyxy.cpu().numpy()
+            track_ids = results[0].boxes.id.int().cpu().numpy()
 
             for box, track_id in zip(boxes, track_ids):
                 x1, y1, x2, y2 = map(int, box)

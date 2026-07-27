@@ -1,5 +1,22 @@
-backend/venv/
+# Virtual Environments
 venv/
-*.pyc
+env/
+ENV/
+env.bak/
+venv.bak/
+venv_old/
+bin/
+include/
+lib/
+lib64/
+
+# Python Cache & Artifacts
 __pycache__/
-.env
+*.py[cod]
+*$py.class
+*.so
+
+# IDE / OS Files
+.vscode/
+.idea/
+.DS_Store
