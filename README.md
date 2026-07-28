@@ -16,8 +16,8 @@ To maintain strict project workflows and team branch boundaries, this workspace 
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/vani-g0344">
-        <img src="https://github.com/vani-g0344.png" width="90px;" alt="Vani Gupta"/>
+      <a href="https://github.com/vanigupta-dev">
+        <img src="https://github.com/vanigupta-dev.png" width="90px;" alt="Vani Gupta"/>
         <br /><sub><b>Vani Gupta</b></sub>
       </a>
       <br /> AI Intern
