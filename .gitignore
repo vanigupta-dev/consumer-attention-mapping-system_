@@ -13,6 +13,7 @@ lib64/
 # Python Cache & Artifacts
 __pycache__/
 *.py[cod]
+*.pyc
 *$py.class
 *.so
 
