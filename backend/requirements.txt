@@ -7,3 +7,5 @@ pyjwt==2.8.0
 passlib[bcrypt]==1.7.4
 opencv-python==4.9.0.80
 python-multipart
+numpy<2.0.0
+mediapipe==0.10.14

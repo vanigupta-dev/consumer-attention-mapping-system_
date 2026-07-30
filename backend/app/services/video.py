@@ -4,7 +4,9 @@ import numpy as np
 from typing import Dict, Any, Tuple
 from ultralytics import YOLO
 
-from mediapipe.python.solutions import face_mesh as mp_face_mesh  # type: ignore
+# Convenience alias for MediaPipe Face Mesh solution
+from mediapipe.solutions import face_mesh as mp_face_mesh # type: ignore
+
 # Spatial parameters database mockup
 SPATIAL_PARAMS_DB: Dict[int, Dict[str, Any]] = {
     101: {
