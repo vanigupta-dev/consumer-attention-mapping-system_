@@ -96,20 +96,47 @@ def get_camera_matrix(img_w: int, img_h: int) -> Tuple[np.ndarray, np.ndarray]:
     return camera_matrix, dist_coeffs
 
 
-def estimate_head_pose(landmarks, img_w: int, img_h: int):
-    """Calculates pitch, yaw, and roll using solvePnP."""
-    landmark_indices = [1, 152, 33, 263, 61, 291]
-    image_points = []
+def estimate_head_pose(face_landmarks, image_width, image_height):
+    # Ensure landmarks exist and have enough detected points
+    if not face_landmarks or len(face_landmarks) < 468:
+        return None, None
 
+    # Key landmark indices: Nose tip (1), Chin (152), Left Eye (33), Right Eye (263), Left Mouth (61), Right Mouth (291)
+    landmark_indices = [1, 152, 33, 263, 61, 291]
+
+    image_points = []
     for idx in landmark_indices:
-        lm = landmarks[idx]
-        image_points.append([lm.x * img_w, lm.y * img_h])
+        lm = face_landmarks[idx]
+        x, y = int(lm.x * image_width), int(lm.y * image_height)
+        image_points.append([x, y])
 
     image_points = np.array(image_points, dtype=np.float64)
-    camera_matrix, dist_coeffs = get_camera_matrix(img_w, img_h)
 
-    success, rotation_vec, translation_vec = cv2.solvePnP(
-        MODEL_POINTS_3D,
+    # Validate that we have exactly 6 2D points matching the 6 3D model points
+    if len(image_points) < 6:
+        return None, None
+
+    # 3D Generic Face Model Reference Points
+    model_points = np.array([
+        (0.0, 0.0, 0.0),             # Nose tip
+        (0.0, -330.0, -65.0),        # Chin
+        (-225.0, 170.0, -135.0),     # Left eye corner
+        (225.0, 170.0, -135.0),      # Right eye corner
+        (-150.0, -150.0, -125.0),    # Left mouth corner
+        (150.0, -150.0, -125.0)      # Right mouth corner
+    ], dtype=np.float64)
+
+    focal_length = image_width
+    center = (image_width / 2, image_height / 2)
+    camera_matrix = np.array(
+        [[focal_length, 0, center[0]],
+         [0, focal_length, center[1]],
+         [0, 0, 1]], dtype=np.float64
+    )
+    dist_coeffs = np.zeros((4, 1)) # Assuming zero lens distortion
+
+    success, rotation_vector, translation_vector = cv2.solvePnP(
+        model_points,
         image_points,
         camera_matrix,
         dist_coeffs,
@@ -119,10 +146,13 @@ def estimate_head_pose(landmarks, img_w: int, img_h: int):
     if not success:
         return None, None
 
-    rotation_mat, _ = cv2.Rodrigues(rotation_vec)
-    angles, _, _, _, _, _ = cv2.RQDecomp3x3(rotation_mat)
+    rotation_matrix, _ = cv2.Rodrigues(rotation_vector)
+    proj_matrix = np.hstack((rotation_matrix, translation_vector))
+    _, _, _, _, _, _, euler_angles = cv2.decomposeProjectionMatrix(proj_matrix)
 
-    pitch, yaw, roll = angles[0], angles[1], angles[2]
+    pitch = euler_angles[0][0]
+    yaw = euler_angles[1][0]
+
     return pitch, yaw
 
 

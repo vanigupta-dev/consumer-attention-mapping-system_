@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from app.services.video import ThreadedVideoIngest, SOURCE_TO_ZONE_ID
 from app.core.db import engine, Base
 from app.api import auth, store
+from fastapi.responses import Response, StreamingResponse
 
 LOCAL_VIDEO_LIBRARY = {
     "electronics": "app/assets/electronics_display.mp4",
@@ -13,7 +14,6 @@ LOCAL_VIDEO_LIBRARY = {
 }
 
 FALLBACK_VIDEO = LOCAL_VIDEO_LIBRARY["grocery"]
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -56,8 +56,34 @@ async def lifespan(app: FastAPI):
     print("[SHUTDOWN] Safely unlinking background media streams...")
     app.state.video_stream.stop_processing()
 
+description = """
+### Retail Computer Vision & Attention Mapping Engine
 
-app = FastAPI(lifespan=lifespan)
+Welcome to the backend management console. This system ingests multi-source video feeds (Webcam, RTSP, Local Assets), extracts facial landmarks via **MediaPipe Face Mesh**, tracks objects using **YOLOv8**, and calculates head pose metrics.
+
+---
+
+###  Quick Navigation Links
+* **Live Visual Stream with Overlays:** [Open Stream Buffer](http://127.0.0.1:8000/api/video/stream)
+* **Live Stream JSON Metadata:** [Inspect Video Status](http://127.0.0.1:8000/api/video/status)
+
+
+---
+
+###  How to Test Source Switching (`POST /api/video/source`)
+1. Expand the `POST /api/video/source` section below.
+2. Click **Try it out**.
+3. Use one of these JSON payloads:
+ * **Webcam Mode:** `{"mode": "webcam"}`
+ * **Local Video Mode:** `{"mode": "local", "local_choice": "electronics"}`
+ * **RTSP Mode:** `{"mode": "rtsp", "rtsp_url":"http://172.25.234.154:8080/video"}`
+"""
+
+app = FastAPI(
+    title="Consumer Attention Mapping System",
+    description=description,
+    version="3.0.0",
+    lifespan=lifespan)
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(store.router, prefix="/api/store", tags=["Store Analytics"])
 
@@ -66,7 +92,6 @@ class VideoSourceRequest(BaseModel):
     mode: str
     local_choice: str | None = None
     rtsp_url: str | None = None
-
 
 @app.post("/api/video/source", tags=["Video Stream Control"])
 def switch_video_source(data: VideoSourceRequest):
@@ -108,10 +133,24 @@ def switch_video_source(data: VideoSourceRequest):
         "active_fallback": FALLBACK_VIDEO
     }
 
-
 @app.get("/api/video/status", tags=["Video Stream Control"])
 def video_status():
-    return {
-        "available_local_videos": list(LOCAL_VIDEO_LIBRARY.keys()),
-        "metadata": app.state.video_stream.get_latest_metadata(),
-    }
+     return {
+            "available_local_videos": list(LOCAL_VIDEO_LIBRARY.keys()),
+            "metadata": app.state.video_stream.get_latest_metadata(),
+        }
+
+@app.get("/api/video/stream", tags=["Video Stream Control"])
+def get_video_stream():
+    """
+    Returns the latest processed frame from the active video ingest thread.
+    Includes YOLO bounding boxes and MediaPipe Face Mesh annotations.
+    """
+    if not hasattr(app.state, "video_stream") or app.state.video_stream is None:
+        raise HTTPException(status_code=503, detail="Video engine not initialized")
+
+    jpeg_bytes = app.state.video_stream.get_latest_jpeg()
+    if not jpeg_bytes:
+        raise HTTPException(status_code=503, detail="Frame buffer is warming up")
+
+    return Response(content=jpeg_bytes, media_type="image/jpeg")
