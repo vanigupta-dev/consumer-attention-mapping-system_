@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from app.services.video import ThreadedVideoIngest
 from app.core.db import engine, Base
-
+from fastapi.responses import Response
 from app.api import auth, store
 
 LOCAL_VIDEO_LIBRARY = {
@@ -67,6 +67,8 @@ class VideoSourceRequest(BaseModel):
 
 @app.post("/api/video/source", tags=["Video Stream Control"])
 def switch_video_source(data: VideoSourceRequest):
+    global FALLBACK_VIDEO
+
     if data.mode == "webcam":
         new_source = "0"
         description = "Hardware Integrated Web Camera"
@@ -75,6 +77,10 @@ def switch_video_source(data: VideoSourceRequest):
             raise HTTPException(status_code=400, detail=f"local_choice must be one of {list(LOCAL_VIDEO_LIBRARY)}")
         new_source = LOCAL_VIDEO_LIBRARY[data.local_choice]
         description = f"Local video: {data.local_choice}"
+        # Update default fallback to match the user's preferred local choice
+        FALLBACK_VIDEO = new_source
+
+
     elif data.mode == "rtsp":
         if not data.rtsp_url:
             raise HTTPException(status_code=400, detail="rtsp_url is required when mode='rtsp'")
@@ -91,6 +97,13 @@ def switch_video_source(data: VideoSourceRequest):
     )
     app.state.video_stream.start_processing()
     return {"status": "switched", "description": description, "source": new_source}
+
+@app.get("/api/video/stream", tags=["Video Stream Control"])
+def get_video_stream():
+    jpeg_bytes = app.state.video_stream.get_latest_jpeg()
+    if not jpeg_bytes:
+        raise HTTPException(status_code=503, detail="Frame not ready yet")
+    return Response(content=jpeg_bytes, media_type="image/jpeg")
 
 
 @app.get("/api/video/status", tags=["Video Stream Control"])

@@ -296,19 +296,25 @@ class ThreadedVideoIngest:
                     cv2.putText(frame, f"ID: {track_id}", (x1, y1 - 10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-            # --- MediaPipe FaceLandmarker (Tasks API) ---
+           # --- MediaPipe FaceLandmarker (Tasks API) ---
             if self.face_landmarker is not None:
-                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-                timestamp_ms = int((time.time() - start_time) * 1000)
-                detection_result = self.face_landmarker.detect_for_video(mp_image, timestamp_ms)
+              mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+              timestamp_ms = int((time.time() - start_time) * 1000)
+              detection_result = self.face_landmarker.detect_for_video(mp_image, timestamp_ms)
 
-                if detection_result.face_landmarks:
-                    for face_landmarks in detection_result.face_landmarks:
-                        pitch, yaw = estimate_head_pose(face_landmarks, w, h)
-                        if pitch is not None and yaw is not None:
-                            cv2.putText(frame, f"Pitch: {pitch:.1f}, Yaw: {yaw:.1f}",
-                                        (30, 40), cv2.FONT_HERSHEY_SIMPLEX,
-                                        0.7, (255, 255, 0), 2)
+              if detection_result.face_landmarks:
+                for face_landmarks in detection_result.face_landmarks:
+            # 1. Draw Mesh Points on Face
+                    for lm in face_landmarks:
+                          lx, ly = int(lm.x * w), int(lm.y * h)
+                          cv2.circle(frame, (lx, ly), 1, (0, 255, 0), -1)
+
+            # 2. Draw Head Pose Pose Text
+                    pitch, yaw = estimate_head_pose(face_landmarks, w, h)
+                    if pitch is not None and yaw is not None:
+                     cv2.putText(frame, f"Pitch: {pitch:.1f}, Yaw: {yaw:.1f}",
+                            (30, 40), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7, (255, 255, 0), 2)
 
             # --- Store the result for the API to serve, instead of imshow() ---
             ok, jpeg_buffer = cv2.imencode(".jpg", frame)
