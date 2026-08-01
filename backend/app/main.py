@@ -2,9 +2,8 @@ import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from app.services.video import ThreadedVideoIngest
+from app.services.video import ThreadedVideoIngest, SOURCE_TO_ZONE_ID
 from app.core.db import engine, Base
-from fastapi.responses import Response
 from app.api import auth, store
 
 LOCAL_VIDEO_LIBRARY = {
@@ -27,24 +26,28 @@ async def lifespan(app: FastAPI):
 
     if user_choice == "A":
         video_source = "0"
+        zone_id = 201
         print("[CONFIG] Profile A Active: Hardware Integrated Web Camera")
     elif user_choice == "B":
         file_choice = os.getenv("VIDEO_FILE_CHOICE", "grocery").strip().lower()
         video_source = LOCAL_VIDEO_LIBRARY.get(file_choice, LOCAL_VIDEO_LIBRARY["grocery"])
+        zone_id = SOURCE_TO_ZONE_ID.get(file_choice, 102)
         print(f"[CONFIG] Profile B Active: Localized Professional Stock Media ({video_source})")
     elif user_choice == "C":
         video_source = os.getenv("RTSP_URL", "rtsp://admin:password@192.168.1.100:554/stream1")
+        zone_id = 301
         print("[CONFIG] Profile C Active: Commercial CCTV Low-Latency Network Stream")
     else:
         print(f"[ERROR] Signature '{user_choice}' recognized as invalid. Defaulting to Profile B.")
         video_source = LOCAL_VIDEO_LIBRARY["grocery"]
-        user_choice = "B"
+        zone_id = 102
 
     print("=" * 50)
 
     app.state.video_stream = ThreadedVideoIngest(
         source=video_source,
         fallback_source=FALLBACK_VIDEO,
+        zone_id=zone_id
     )
     app.state.video_stream.start_processing()
 
@@ -71,39 +74,39 @@ def switch_video_source(data: VideoSourceRequest):
 
     if data.mode == "webcam":
         new_source = "0"
+        zone_id = 201
         description = "Hardware Integrated Web Camera"
     elif data.mode == "local":
         if data.local_choice not in LOCAL_VIDEO_LIBRARY:
-            raise HTTPException(status_code=400, detail=f"local_choice must be one of {list(LOCAL_VIDEO_LIBRARY)}")
+            raise HTTPException(status_code=400, detail=f"local_choice must be one of {list(LOCAL_VIDEO_LIBRARY.keys())}")
         new_source = LOCAL_VIDEO_LIBRARY[data.local_choice]
+        zone_id = SOURCE_TO_ZONE_ID.get(data.local_choice, 102)
         description = f"Local video: {data.local_choice}"
-        # Update default fallback to match the user's preferred local choice
         FALLBACK_VIDEO = new_source
-
-
     elif data.mode == "rtsp":
         if not data.rtsp_url:
             raise HTTPException(status_code=400, detail="rtsp_url is required when mode='rtsp'")
         new_source = data.rtsp_url
+        zone_id = 301
         description = "RTSP live stream"
     else:
         raise HTTPException(status_code=400, detail="mode must be 'webcam', 'local', or 'rtsp'")
 
-    print(f"[VIDEO] Switching source -> {description} ({new_source})")
+    print(f"[VIDEO] Switching source -> {description} ({new_source}) [Zone ID: {zone_id}]")
     app.state.video_stream.stop_processing()
     app.state.video_stream = ThreadedVideoIngest(
         source=new_source,
         fallback_source=FALLBACK_VIDEO,
+        zone_id=zone_id
     )
     app.state.video_stream.start_processing()
-    return {"status": "switched", "description": description, "source": new_source}
-
-@app.get("/api/video/stream", tags=["Video Stream Control"])
-def get_video_stream():
-    jpeg_bytes = app.state.video_stream.get_latest_jpeg()
-    if not jpeg_bytes:
-        raise HTTPException(status_code=503, detail="Frame not ready yet")
-    return Response(content=jpeg_bytes, media_type="image/jpeg")
+    return {
+        "status": "switched",
+        "description": description,
+        "source": new_source,
+        "zone_id": zone_id,
+        "active_fallback": FALLBACK_VIDEO
+    }
 
 
 @app.get("/api/video/status", tags=["Video Stream Control"])
@@ -111,12 +114,4 @@ def video_status():
     return {
         "available_local_videos": list(LOCAL_VIDEO_LIBRARY.keys()),
         "metadata": app.state.video_stream.get_latest_metadata(),
-    }
-
-
-@app.get("/")
-def home():
-    return {
-        "status": "Attention Mapping System Active",
-        "active_profile": os.getenv("VIDEO_SOURCE_CHOICE", "B").upper()
     }

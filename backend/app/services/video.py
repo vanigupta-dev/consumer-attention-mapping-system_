@@ -11,13 +11,61 @@ from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import FaceLandmarker, FaceLandmarkerOptions, RunningMode
 
 
-# Spatial parameters database mockup
-SPATIAL_PARAMS_DB: Dict[int, Dict[str, Any]] = {
+# Spatial parameters database mapping unique Zone IDs & Bounding Boxes
+SPATIAL_PARAMS_DB: Dict[Any, Dict[str, Any]] = {
+   # --- Local Stock Media Profiles ---
     101: {
-        "store_name": "Electronics Dept",
+        "zone_id": 101,
+        "store_name": "Tech World",
+        "department": "Electronics",
         "zone_name": "Premium Displays",
-        "zone_bbox": (100, 100, 500, 400)
+        "zone_bbox": (100, 100, 500, 400),  # (x1, y1, x2, y2)
+        "camera_type": "pre_recorded"
+    },
+    102: {
+        "zone_id": 102,
+        "store_name": "Fresh Market",
+        "department": "Grocery",
+        "zone_name": "Produce & Dwell Shelf",
+        "zone_bbox": (50, 150, 450, 480),
+        "camera_type": "pre_recorded"
+    },
+    103: {
+        "zone_id": 103,
+        "store_name": "Style Hub",
+        "department": "Apparel",
+        "zone_name": "Checkout & Fitting Racks",
+        "zone_bbox": (200, 80, 600, 420),
+        "camera_type": "pre_recorded"
+    },
+
+    # --- Live Hardware Profiles ---
+    201: {
+        "zone_id": 201,
+        "store_name": "Live Kiosk",
+        "department": "Front Desk / Entrance",
+        "zone_name": "Webcam Interactive Display",
+        "zone_bbox": (150, 100, 500, 450),
+        "camera_type": "live_hardware"
+    },
+    301: {
+        "zone_id": 301,
+        "store_name": "Flagship Store",
+        "department": "Overhead CCTV",
+        "zone_name": "Main Aisle Traffic Stream",
+        "zone_bbox": (80, 80, 550, 400),
+        "camera_type": "live_rtsp"
     }
+}
+
+# Lookup helper mapping source identifiers to Zone IDs
+SOURCE_TO_ZONE_ID = {
+    "electronics": 101,
+    "grocery": 102,
+    "apparel": 103,
+    "0": 201,        # Laptop webcam
+    "webcam": 201,
+    "rtsp": 301
 }
 
 # Standard 3D model points for Head Pose Estimation (in mm)
@@ -79,34 +127,15 @@ def estimate_head_pose(landmarks, img_w: int, img_h: int):
 
 
 class ThreadedVideoIngest:
-    """
-    WHY a class (not the old plain function): main.py's lifespan needs
-    something it can START on server startup and STOP on server shutdown --
-    that requires an object that remembers its own state (is it running?
-    what was the last frame?) across many separate calls. A single function
-    that loops forever with cv2.imshow can't be started/stopped from outside
-    and can't run in the background while the API also serves web requests.
 
-    WHY no cv2.imshow here: this code now runs inside a FastAPI background
-    thread on a server -- there is no desktop window to draw into. Instead,
-    we keep the latest ANNOTATED frame in memory (self.latest_jpeg) so a
-    future API endpoint (e.g. GET /api/video/latest-frame) can serve it to
-    a browser as an image, without ever popping up a native window.
-    """
+    def __init__(
+            self,
+            source: Any = 0,
+            fallback_source: Optional[str] = None,
+            zone_id: Optional[int] = None,
+            max_consecutive_failures: int = 15
+            ):
 
-    def __init__(self, source: Any = 0, fallback_source: Optional[str] = None,
-                 max_consecutive_failures: int = 15):
-        """
-        WHY fallback_source is a SEPARATE argument, not baked into a library
-        dict: this class shouldn't need to know about your app's specific
-        set of demo videos -- main.py decides what "safe backup video"
-        means, and just hands the path in.
-
-        WHY max_consecutive_failures, not "one failed read = dead": a live
-        camera (webcam or RTSP) can drop a single frame here and there from
-        normal network jitter -- that's not "the camera is gone." Only
-        treat the source as truly lost after several reads IN A ROW fail.
-        """
         self.original_source = self._normalize(source)
         self.fallback_source = fallback_source
         self.max_consecutive_failures = max_consecutive_failures
@@ -114,6 +143,16 @@ class ThreadedVideoIngest:
         self.source = self.original_source
         self.is_fallback_active = False
         self.is_live_source = self._looks_like_live_source(self.original_source)
+
+        # Assign active Zone ID based on explicit argument or source lookup
+        if zone_id in SPATIAL_PARAMS_DB:
+            self.active_zone_id = zone_id
+        else:
+            source_str = str(self.original_source).lower()
+            self.active_zone_id = SOURCE_TO_ZONE_ID.get(source_str, 102) # Default to Grocery (102)
+
+        self.zone_config = SPATIAL_PARAMS_DB.get(self.active_zone_id, SPATIAL_PARAMS_DB[102])
+
 
         self.capture: Optional[cv2.VideoCapture] = None
         self.model: Optional[YOLO] = None
@@ -129,18 +168,14 @@ class ThreadedVideoIngest:
 
     @staticmethod
     def _normalize(source: Any) -> Any:
-        """WHY this cast: cv2.VideoCapture needs an int for webcam indices,
-        but main.py passes it as the string "0" -- so we convert here."""
+        """Converts string digits to int for webcam device indices."""
         if isinstance(source, str) and source.isdigit():
             return int(source)
         return source
 
     @staticmethod
     def _looks_like_live_source(source: Any) -> bool:
-        """WHY this matters: a webcam or RTSP feed that stops delivering
-        frames means 'connection lost' -- fail over. A LOCAL VIDEO FILE
-        reaching its end is normal (the file finished playing), not a
-        failure -- so it's treated differently (looped) instead."""
+        """Determines if the source is likely a live feed (webcam or RTSP)."""
         if isinstance(source, int):
             return True  # webcam device index
         if isinstance(source, str) and source.lower().startswith(("rtsp://", "http://", "https://")):
@@ -148,21 +183,14 @@ class ThreadedVideoIngest:
         return False
 
     def _open_capture(self, source: Any) -> bool:
-        """Attempts to open a video source. Returns True/False instead of
-        raising, so callers can decide what to do next (e.g. try a fallback)."""
+        """Attempts to open the video capture for the given source."""
         if self.capture is not None:
             self.capture.release()
         self.capture = cv2.VideoCapture(source)
         return self.capture.isOpened()
 
     def _fail_over_to_fallback(self) -> bool:
-        """
-        WHY this is its own method, called from two places (initial open
-        AND mid-stream disconnect): both situations mean the exact same
-        thing to the rest of the system -- "the intended source isn't
-        available, use the safe backup instead" -- so they should run
-        through identical logic rather than duplicating it.
-        """
+        """Attempts to switch to the fallback source if available."""
         if not self.fallback_source or self.is_fallback_active:
             return False  # no fallback configured, or already using it
 
@@ -177,10 +205,7 @@ class ThreadedVideoIngest:
         return False
 
     def start_processing(self):
-        """WHY separate from __init__: loading YOLO + MediaPipe models takes
-        real time (seconds). We don't want that to block FastAPI's startup
-        event -- so model loading + the capture loop both happen inside the
-        background thread, not in the constructor."""
+        """Starts the background thread for video ingestion and processing."""
         self._running = True
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -211,11 +236,7 @@ class ThreadedVideoIngest:
             self.face_landmarker = FaceLandmarker.create_from_options(options)
 
         if not self._open_capture(self.source):
-            # WHY try the fallback immediately, right here, instead of just
-            # giving up: if the webcam/RTSP camera was never reachable in
-            # the first place (unplugged, wrong IP, no internet), there's
-            # no point starting a thread that does nothing -- fail over
-            # to the safe local video right away, same as a mid-stream drop.
+           # WHY failover logic: if the primary source fails to open, we should attempt to switch to the fallback source (if configured) before giving up entirely. This is especially important for live sources that may be temporarily unavailable.
             if not self._fail_over_to_fallback():
                 print(f"[VideoIngest] ERROR: could not open source, and no "
                       f"working fallback available. Stopping.")
@@ -233,19 +254,11 @@ class ThreadedVideoIngest:
             ret, frame = self.capture.read()
 
             if not ret:
-                # WHY check the CURRENT source's type, not the original: once
-                # we've failed over, we're now playing a local file -- it
-                # should LOOP when it ends, not trigger another "disconnect"
-                # search. Only the source we're ACTUALLY reading from right
-                # now matters for this decision.
+               # WHY consecutive failure logic: if a live source fails to provide frames repeatedly, it likely indicates a connection issue. We should attempt to switch to the fallback source after a certain number of consecutive failures, rather than immediately giving up on the stream.
                 currently_on_live_source = self._looks_like_live_source(self.source)
 
                 if currently_on_live_source and not self.is_fallback_active:
-                    # WHY count failures instead of failing over on the
-                    # very first bad read: a live camera can drop one frame
-                    # from normal network jitter -- that's not "the camera
-                    # is gone." Only treat it as a real disconnect after
-                    # several reads IN A ROW fail.
+                    # WHY consecutive failure logic: if a live source fails to provide frames repeatedly, it likely indicates a connection issue. We should attempt to switch to the fallback source after a certain number of consecutive failures, rather than immediately giving up on the stream.
                     consecutive_failures += 1
                     print(f"[VideoIngest] Frame read failed "
                           f"({consecutive_failures}/{self.max_consecutive_failures})")
@@ -262,11 +275,7 @@ class ThreadedVideoIngest:
                     continue
 
                 elif not currently_on_live_source:
-                    # WHY loop instead of stopping: a LOCAL VIDEO FILE
-                    # reaching its end is normal, expected behavior -- for
-                    # a monitoring system that's supposed to run
-                    # continuously, looping the same file is more useful
-                    # than the whole pipeline going silent.
+                   # WHY this is a local video file: if the read fails, it means we've reached the end of the file. Instead of treating it as a failure, we should loop back to the start of the video.
                     print("[VideoIngest] Local video reached its end -- looping.")
                     self.capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     continue
@@ -323,11 +332,16 @@ class ThreadedVideoIngest:
                 if ok:
                     self.latest_jpeg = jpeg_buffer.tobytes()
                 self.latest_metadata = {
-                    "frame_count": self.frame_count,
-                    "resolution": f"{w}x{h}",
-                    "timestamp": time.time(),
-                    "active_source": str(self.source),
-                    "is_fallback_active": self.is_fallback_active,
+                   "frame_count": self.frame_count,
+                   "resolution": f"{w}x{h}",
+                   "timestamp": time.time(),
+                   "active_source": str(self.source),
+                   "is_fallback_active": self.is_fallback_active,
+                   "zone_id": self.active_zone_id,
+                   "store_name": self.zone_config["store_name"],
+                    "department": self.zone_config["department"],
+                    "zone_name": self.zone_config["zone_name"],
+                    "zone_bbox": self.zone_config["zone_bbox"],
                 }
 
         if self.capture is not None:
@@ -335,9 +349,7 @@ class ThreadedVideoIngest:
         print("[VideoIngest] Capture released. Thread stopping.")
 
     def get_latest_jpeg(self) -> Optional[bytes]:
-        """WHY a getter with a lock: the background thread writes
-        self.latest_jpeg continuously while an API route might read it at
-        the exact same instant -- the lock prevents reading a half-written value."""
+        """Returns the most recent JPEG frame, or None if not available."""
         with self._lock:
             return self.latest_jpeg
 
