@@ -91,6 +91,23 @@ MODEL_POINTS_3D = np.array([
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "face_landmarker.task")
 
 
+def calculate_engagement_score(dwell_sec: float, gaze_sec: float) -> float:
+    """
+    Computes engagement score between 0.0 and 1.0.
+    Weighted by: 60% gaze-to-dwell ratio + 40% total gaze duration.
+    """
+    if dwell_sec <= 0:
+        return 0.0
+
+    gaze_ratio = min(gaze_sec / dwell_sec, 1.0)
+    duration_weight = min(gaze_sec / 10.0, 1.0)
+
+    score = (0.6 * gaze_ratio) + (0.4 * duration_weight)
+    return round(score, 2)
+
+
+
+
 def resolve_bbox(zone_config: Dict, frame_w: int, frame_h: int) -> Tuple[int, int, int, int]:
     """
     WHY this function: converts percentage-based zone boundaries into real
@@ -488,7 +505,15 @@ class ThreadedVideoIngest:
         gaze_sec: float,
         score: float
     ):
+        if dwell_sec < 1.5:
+            return
+
+        # Calculate engagement score
+        engagement_score = calculate_engagement_score(dwell_sec, gaze_sec)
+
+        # Save to database
         db = SessionLocal()
+
         try:
             log_entry = ShopperDwellLog(
                 track_id=track_id,
@@ -500,15 +525,12 @@ class ThreadedVideoIngest:
                 enter_timestamp=datetime.now(timezone.utc),
                 dwell_duration_sec=round(dwell_sec, 2),
                 gaze_duration_sec=round(gaze_sec, 2),
-                engagement_score=round(score, 2)
+                engagement_score=round(engagement_score, 2)
             )
             db.add(log_entry)
             db.commit()
-            print(
-                f"[DB LOG] Track#{track_id} | Zone:{zone_id} | "
-                f"Dwell:{round(dwell_sec,2)}s | Gaze:{round(gaze_sec,2)}s | "
-                f"Score:{round(score,2)} | Mode:{self.source_mode}"
-            )
+            print(f"[DB LOG SUCCESS] Saved Track #{track_id} | Zone: {zone_id} | Dwell: {dwell_sec:.2f}s | Score: {engagement_score}")
+
         except Exception as e:
             db.rollback()
             print(f"[DB ERROR] Track#{track_id}: {e}")
