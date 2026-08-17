@@ -6,9 +6,11 @@ from sqlalchemy.orm import Session
 from fastapi.responses import Response
 
 from app.models.analytics import ShopperDwellLog
+from app.models import analytics
 from app.services.video import ThreadedVideoIngest, SOURCE_TO_ZONE_ID
 from app.core.db import engine, Base, get_db
 from app.api import auth, store
+
 
 LOCAL_VIDEO_LIBRARY = {
     "electronics": "app/assets/electronics_display.mp4",
@@ -27,7 +29,7 @@ async def lifespan_context(app: FastAPI):
     # knows about models that have been imported into memory at least once.
     # If ShopperDwellLog was never imported anywhere before create_all runs,
     # its table never gets created and every INSERT silently fails.
-    from app.models import analytics  # noqa
+
     Base.metadata.create_all(bind=engine)
     print("[STARTUP] Tables synced (including shopper_dwell_logs)")
 
@@ -100,13 +102,12 @@ or the local video loops. Watch terminal for `[DB LOG]` lines.
 app = FastAPI(
     title="Consumer Attention Mapping System",
     description=description,
-    version="3.1.0",
-    lifespan=lifespan_context
+    version="3.1.0"
 )
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(store.router, prefix="/api/store", tags=["Store Analytics"])
-
+app.include_router(analytics.router)
 
 @app.get("/api/analytics/dwell-logs", tags=["Analytics & Intelligence"])
 def get_recent_dwell_logs(
