@@ -1,7 +1,13 @@
 import numpy as np
+import io
 from sqlalchemy import Column, Integer, Float, String, DateTime, func, case
 from sqlalchemy.orm import Session
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import StreamingResponse
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 from app.core.db import Base, get_db
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
@@ -9,7 +15,7 @@ from pydantic import BaseModel
 # Import your database session dependency and SQLAlchemy model
 from app.core.db import get_db
 
-
+router = APIRouter(prefix="/api/analytics", tags=["Analytics & Intelligence"])
 class ShopperDwellLog(Base):
     __tablename__ = "shopper_dwell_logs"
 
@@ -27,7 +33,7 @@ class ShopperDwellLog(Base):
     engagement_score = Column(Float, default=0.0)
 
 
-router = APIRouter(prefix="/api/analytics", tags=["Analytics & Intelligence"])
+
 
 class ZoneSummaryResponse(BaseModel):
     zone_id: int
@@ -417,3 +423,61 @@ def estimate_revenue_leakage(avg_product_price: float = 25.0, db: Session = Depe
         },
         "zone_breakdown": leakage_report
     }
+
+
+@router.get("/export/pdf")
+def export_pdf_report():
+    try:
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+        story = []
+        styles = getSampleStyleSheet()
+
+        # Title
+        title_style = ParagraphStyle(
+            'ReportTitle',
+            parent=styles['Heading1'],
+            fontSize=20,
+            leading=24,
+            textColor=colors.HexColor('#1E293B'),
+            spaceAfter=12
+        )
+        story.append(Paragraph("Consumer Attention Mapping Analytics Report", title_style))
+        story.append(Spacer(1, 12))
+
+        # Sample Summary Data (Replace or populate with your DB query)
+        data = [
+            ["Rank", "Product / Display", "Gaze Duration", "Interactions", "Pickup Rate", "Composite Score"],
+            ["#1", "Checkout Counter D", "139.8s", "6", "67%", "61 / 100"],
+            ["#2", "Apparel Rack C", "8.6s", "21", "50%", "45.2 / 100"],
+            ["#3", "Promotional Stand E", "34.6s", "8", "58%", "35 / 100"],
+            ["#4", "Grocery Shelf B", "5s", "8", "46%", "24.5 / 100"],
+            ["#5", "Electronics Display A", "13.5s", "2", "3%", "6.8 / 100"]
+        ]
+
+        # Table Styling
+        table = Table(data, colWidths=[40, 140, 90, 80, 80, 100])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8FAFC')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+
+        story.append(table)
+        doc.build(story)
+
+        buffer.seek(0)
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=Consumer_Attention_Report.pdf"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")

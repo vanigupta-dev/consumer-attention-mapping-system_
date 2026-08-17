@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from sqlalchemy.orm import Session
 from fastapi.responses import Response
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.models.analytics import ShopperDwellLog
 from app.models import analytics
@@ -103,6 +104,15 @@ app = FastAPI(
     title="Consumer Attention Mapping System",
     description=description,
     version="3.1.0"
+)
+
+# Enable CORS for React frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
@@ -260,3 +270,4 @@ def home(response: Response):
         "stream": "http://127.0.0.1:8000/api/video/stream",
         "analytics": "http://127.0.0.1:8000/api/analytics/dwell-logs"
     }
+
