@@ -1,7 +1,12 @@
 import numpy as np
+import io
 from sqlalchemy import Column, Integer, Float, String, DateTime, func, case
 from sqlalchemy.orm import Session
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 from app.core.db import Base, get_db
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
@@ -417,3 +422,70 @@ def estimate_revenue_leakage(avg_product_price: float = 25.0, db: Session = Depe
         },
         "zone_breakdown": leakage_report
     }
+
+
+@router.get("/export/pdf")
+def export_pdf_report(db: Session = Depends(get_db)):
+    """
+    Generates a structured PDF Executive Report summarizing store attention metrics.
+    """
+    summary = get_zone_summary(db=db)
+    attractiveness = get_product_attractiveness(db=db)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    story = []
+    styles = getSampleStyleSheet()
+
+    # Title & Subtitle
+    story.append(Paragraph("<b>Consumer Attention Mapping System</b>", styles['Title']))
+    story.append(Paragraph("Executive Store Performance & Attractiveness Report", styles['Subtitle']))
+    story.append(Spacer(1, 15))
+
+    # Zone Summary Table
+    story.append(Paragraph("<b>1. Zone Traffic & Engagement Summary</b>", styles['Heading2']))
+    story.append(Spacer(1, 5))
+
+    zone_data = [["Zone ID", "Shoppers", "Avg Dwell (s)", "Avg Gaze (s)", "High Engagement"]]
+    for z in summary:
+        zone_data.append([str(z.zone_id), str(z.total_shoppers), f"{z.avg_dwell_sec}s", f"{z.avg_gaze_sec}s", str(z.high_engagement_shoppers)])
+
+    t_zone = Table(zone_data, colWidths=[70, 80, 100, 100, 120])
+    t_zone.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E293B')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0,0), (-1,0), 6),
+    ]))
+    story.append(t_zone)
+    story.append(Spacer(1, 15))
+
+    # Product Attractiveness Rankings
+    story.append(Paragraph("<b>2. Product Attractiveness Leaderboard</b>", styles['Heading2']))
+    story.append(Spacer(1, 5))
+
+    prod_data = [["Rank", "Product Name", "Gaze Time", "Pickups", "Score / 100"]]
+    for p in attractiveness:
+        prod_data.append([f"#{p['rank']}", p['product_name'], f"{p['raw_attention_sec']}s", str(p['raw_interactions']), f"{p['attractiveness_score']}"])
+
+    t_prod = Table(prod_data, colWidths=[50, 180, 80, 70, 90])
+    t_prod.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0F172A')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0,0), (-1,0), 6),
+    ]))
+    story.append(t_prod)
+
+    doc.build(story)
+    buffer.seek(0)
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=Consumer_Attention_Report.pdf"}
+    )
