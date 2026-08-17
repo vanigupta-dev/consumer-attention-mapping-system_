@@ -206,12 +206,16 @@ def switch_video_source(data: VideoSourceRequest):
         )
 
     print(f"[VIDEO] Switching -> {description_text} ({new_source}) [Zone:{zone_id}]")
-    app.state.video_stream.stop_processing()
+
+    if hasattr(app.state, "video_stream") and app.state.video_stream is not None:
+        app.state.video_stream.stop_processing()
+
     app.state.video_stream = ThreadedVideoIngest(
         source=new_source,
         fallback_source=FALLBACK_VIDEO,
         zone_id=zone_id
     )
+
     app.state.video_stream.start_processing()
 
     return {
