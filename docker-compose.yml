@@ -1,45 +1,28 @@
-version: '3.8'
 
 services:
-  # 1. PostgreSQL Database
-  db:
-    image: postgres:15-alpine
-    container_name: postgres_db
-    restart: always
+  postgres:
+    image: postgres:15
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
-      POSTGRES_DB: consumer_attention
+      POSTGRES_DB: cams_db
+      POSTGRES_PASSWORD: yourpassword
     ports:
       - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
 
-  # 2. FastAPI Backend Service
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: fastapi_backend
-    restart: always
+    build: ./backend
+    ports:
+      - "8008:8008"
+    depends_on:
+      - postgres
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+
+  api_gateway:
+    build: ./api_gateway
     ports:
       - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://postgres:postgrespassword@db:5432/consumer_attention
-    depends_on:
-      - db
-
-  # 3. React Frontend Service
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: react_frontend
-    restart: always
-    ports:
-      - "80:80"
     depends_on:
       - backend
-
-volumes:
-  postgres_data:

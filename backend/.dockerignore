@@ -1,0 +1,16 @@
+@"
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.env
+*.mp4
+*.avi
+*.mov
+*.pt
+*.task
+app/assets/
+"@ | Out-File -Encoding utf8 backend\.dockerignore
