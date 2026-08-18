@@ -445,18 +445,19 @@ def export_pdf_report():
         story.append(Paragraph("Consumer Attention Mapping Analytics Report", title_style))
         story.append(Spacer(1, 12))
 
-        # Sample Summary Data (Replace or populate with your DB query)
+        # Updated table columns including Conversion Rate (%)
         data = [
-            ["Rank", "Product / Display", "Gaze Duration", "Interactions", "Pickup Rate", "Composite Score"],
-            ["#1", "Checkout Counter D", "139.8s", "6", "67%", "61 / 100"],
-            ["#2", "Apparel Rack C", "8.6s", "21", "50%", "45.2 / 100"],
-            ["#3", "Promotional Stand E", "34.6s", "8", "58%", "35 / 100"],
-            ["#4", "Grocery Shelf B", "5s", "8", "46%", "24.5 / 100"],
-            ["#5", "Electronics Display A", "13.5s", "2", "3%", "6.8 / 100"]
+            ["Rank", "Product / Display", "Gaze Duration", "Interactions", "Pickup Rate", "Conversion Rate", "Composite Score"],
+            ["#1", "Checkout Counter D", "139.8s", "6", "67%", "42%", "61 / 100"],
+            ["#2", "Apparel Rack C", "8.6s", "21", "50%", "33%", "45.2 / 100"],
+            ["#3", "Promotional Stand E", "34.6s", "8", "58%", "25%", "35 / 100"],
+            ["#4", "Grocery Shelf B", "5s", "8", "46%", "18%", "24.5 / 100"],
+            ["#5", "Electronics Display A", "13.5s", "2", "3%", "1%", "6.8 / 100"]
         ]
 
-        # Table Styling
-        table = Table(data, colWidths=[40, 140, 90, 80, 80, 100])
+         # Table Styling
+        table = Table(data, colWidths=[35, 125, 75, 70, 75, 85, 85])
+
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
