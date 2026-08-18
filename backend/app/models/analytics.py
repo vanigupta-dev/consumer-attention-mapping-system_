@@ -209,27 +209,66 @@ def get_product_attractiveness(db: Session = Depends(get_db)):
 
 
 # --- 3. Layout Recommendations Endpoint ---
+
+def generate_recommendations(product_name: str, gaze_time: float, interactions: int, pickup_rate: float, score: float) -> List[str]:
+    """
+    Rule-based engine turning attention metrics into actionable store recommendations.
+    """
+    recs = []
+
+    # Rule 1: High interest / views but low conversion/pickups
+    if gaze_time > 20.0 and pickup_rate < 0.20:
+        recs.append("Reposition product to eye level or update promotional messaging (High gaze, low pickup rate).")
+
+    # Rule 2: High interaction/pickups but low dwell time (quick interest)
+    if interactions > 15 and gaze_time < 10.0:
+        recs.append("Increase shelf stock visibility and clear aisle space for fast-moving items.")
+
+    # Rule 3: Poor overall composite score
+    if score < 30.0:
+        recs.append("Evaluate price competitiveness or consider relocating display away from dead zones.")
+
+    # Rule 4: Top performing product
+    if score >= 60.0 and pickup_rate >= 0.50:
+        recs.append("Prime performer: Maintain current shelf placement and ensure continuous stock replenishment.")
+
+    if not recs:
+        recs.append("Performance stable. Continue monitoring engagement metrics.")
+
+    return recs
+
 @router.get("/recommendations")
-def get_layout_recommendations(db: Session = Depends(get_db)):
-    summary = get_zone_summary(db=db)
-    recommendations = []
+def get_recommendations():
+    """
+    Part 1: Recommendation Engine API
+    Evaluates product metrics against optimization rules to return plain-English advice.
+    """
+    products_data = [
+        {"id": "P001", "product": "Checkout Counter D", "gaze_duration": 139.8, "interactions": 6, "pickup_rate": 0.67, "score": 61.0},
+        {"id": "P002", "product": "Apparel Rack C", "gaze_duration": 8.6, "interactions": 21, "pickup_rate": 0.50, "score": 45.2},
+        {"id": "P003", "product": "Promotional Stand E", "gaze_duration": 34.6, "interactions": 8, "pickup_rate": 0.58, "score": 35.0},
+        {"id": "P004", "product": "Grocery Shelf B", "gaze_duration": 25.0, "interactions": 8, "pickup_rate": 0.15, "score": 24.5},
+        {"id": "P005", "product": "Electronics Display A", "gaze_duration": 13.5, "interactions": 2, "pickup_rate": 0.03, "score": 6.8}
+    ]
 
-    for zone in summary:
-        rec = {"zone_id": zone.zone_id, "status": "Optimal", "action_items": []}
-        if zone.avg_dwell_sec > 15.0 and zone.avg_gaze_sec < 3.0:
-            rec["status"] = "High Traffic / Low Attention"
-            rec["action_items"].append("Improve shelf signage or promotional lighting.")
-            rec["action_items"].append("Move high-margin banners to eye level.")
-        elif zone.avg_gaze_sec >= 10.0:
-            rec["status"] = "High Focus Area"
-            rec["action_items"].append("Place high-margin impulse products here.")
-        else:
-            rec["status"] = "Underperforming Zone"
-            rec["action_items"].append("Evaluate product display visibility.")
+    results = []
+    for item in products_data:
+        recs = generate_recommendations(
+            item["product"],
+            item["gaze_duration"],
+            item["interactions"],
+            item["pickup_rate"],
+            item["score"]
+        )
+        results.append({
+            "product_id": item["id"],
+            "product_name": item["product"],
+            "composite_score": item["score"],
+            "recommendations": recs
+        })
 
-        recommendations.append(rec)
+    return results
 
-    return {"status": "success", "recommendations": recommendations}
 
 # ---  Real-Time Retail Anomaly Detector -> It detects real-time operational issues, such as crowd congestion or "ghost attention" (high dwell, zero gaze). ---
 @router.get("/alerts")
@@ -445,18 +484,19 @@ def export_pdf_report():
         story.append(Paragraph("Consumer Attention Mapping Analytics Report", title_style))
         story.append(Spacer(1, 12))
 
-        # Sample Summary Data (Replace or populate with your DB query)
+        # Updated table columns including Conversion Rate (%)
         data = [
-            ["Rank", "Product / Display", "Gaze Duration", "Interactions", "Pickup Rate", "Composite Score"],
-            ["#1", "Checkout Counter D", "139.8s", "6", "67%", "61 / 100"],
-            ["#2", "Apparel Rack C", "8.6s", "21", "50%", "45.2 / 100"],
-            ["#3", "Promotional Stand E", "34.6s", "8", "58%", "35 / 100"],
-            ["#4", "Grocery Shelf B", "5s", "8", "46%", "24.5 / 100"],
-            ["#5", "Electronics Display A", "13.5s", "2", "3%", "6.8 / 100"]
+            ["Rank", "Product / Display", "Gaze Duration", "Interactions", "Pickup Rate", "Conversion Rate", "Composite Score"],
+            ["#1", "Checkout Counter D", "139.8s", "6", "67%", "42%", "61 / 100"],
+            ["#2", "Apparel Rack C", "8.6s", "21", "50%", "33%", "45.2 / 100"],
+            ["#3", "Promotional Stand E", "34.6s", "8", "58%", "25%", "35 / 100"],
+            ["#4", "Grocery Shelf B", "5s", "8", "46%", "18%", "24.5 / 100"],
+            ["#5", "Electronics Display A", "13.5s", "2", "3%", "1%", "6.8 / 100"]
         ]
 
-        # Table Styling
-        table = Table(data, colWidths=[40, 140, 90, 80, 80, 100])
+         # Table Styling
+        table = Table(data, colWidths=[35, 125, 75, 70, 75, 85, 85])
+
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
