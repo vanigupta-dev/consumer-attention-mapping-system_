@@ -1,6 +1,7 @@
 import React from 'react';
 import ShelfHeatmap from './components/ShelfHeatmap';
 import AttractivenessLeaderboard from './components/AttractivenessLeaderboard';
+import Recommendations from './components/Recommendations';
 import { Download, LayoutDashboard } from 'lucide-react';
 
 function App() {
@@ -28,11 +29,14 @@ function App() {
         </button>
       </header>
 
-      {/* Main Grid View */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Main Heatmap & Leaderboard Grid */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start mb-8">
         <ShelfHeatmap />
         <AttractivenessLeaderboard />
       </div>
+
+      {/* Recommendations Engine Component */}
+      <Recommendations />
     </div>
   );
 }
