@@ -1,0 +1,17 @@
+# Exclude local virtual environments & dependencies
+**/venv
+**/.venv
+**/node_modules
+
+# Exclude Python cache and git
+**/__pycache__
+**/*.pyc
+**/.git
+**/.gitignore
+
+# Exclude video files and build artifacts
+*.mp4
+*.avi
+*.mov
+**/dist
+**/build
