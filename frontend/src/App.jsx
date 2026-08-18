@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ShelfHeatmap from './components/ShelfHeatmap';
 import AttractivenessLeaderboard from './components/AttractivenessLeaderboard';
 import Recommendations from './components/Recommendations';
+import RoleViewsAndAlerts from './components/RoleViewsAndAlerts';
 import { Download, LayoutDashboard } from 'lucide-react';
 
 function App() {
+  const [role, setRole] = useState('Store Manager');
+
   const handleDownloadPDF = () => {
     window.open('http://127.0.0.1:8000/api/analytics/export/pdf', '_blank');
   };
@@ -12,30 +15,35 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       {/* Header Bar */}
-      <header className="flex justify-between items-center mb-8 bg-white p-6 rounded-xl shadow-sm">
+      <header className="flex justify-between items-center mb-6 bg-white p-6 rounded-xl shadow-sm">
         <div className="flex items-center gap-3">
           <LayoutDashboard className="w-8 h-8 text-blue-600" />
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Consumer Attention Mapping Dashboard</h1>
-            <p className="text-sm text-gray-500">Real-time shelf analytics and consumer behavior tracking</p>
+            <p className="text-sm text-gray-500">
+              Active View: <span className="font-semibold text-blue-600">{role}</span>
+            </p>
           </div>
         </div>
 
         <button
           onClick={handleDownloadPDF}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium shadow-sm transition-all"
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium shadow-sm transition-all text-sm"
         >
           <Download className="w-4 h-4" /> Download PDF Report
         </button>
       </header>
 
-      {/* Main Heatmap & Leaderboard Grid */}
+      {/* Part 2: Role Switcher & Real-Time Alerts */}
+      <RoleViewsAndAlerts currentRole={role} onRoleChange={setRole} />
+
+      {/* Main Analytics Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start mb-8">
         <ShelfHeatmap />
         <AttractivenessLeaderboard />
       </div>
 
-      {/* Recommendations Engine Component */}
+      {/* Part 1: Optimization Recommendations Engine */}
       <Recommendations />
     </div>
   );

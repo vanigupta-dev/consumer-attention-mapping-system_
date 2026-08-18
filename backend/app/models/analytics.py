@@ -272,37 +272,33 @@ def get_recommendations():
 
 # ---  Real-Time Retail Anomaly Detector -> It detects real-time operational issues, such as crowd congestion or "ghost attention" (high dwell, zero gaze). ---
 @router.get("/alerts")
-def get_retail_anomalies(db: Session = Depends(get_db)):
+def get_alerts():
     """
-    Detects real-time store anomalies: Congestion spikes and low-attention bottlenecks.
+    Alerts Engine API-:
+    Returns low-performance triggers for products requiring urgent attention.
     """
-    summary = get_zone_summary(db=db)
-    alerts = []
+    products = [
+        {"id": "P001", "name": "Checkout Counter D", "score": 61.0, "status": "Normal"},
+        {"id": "P002", "name": "Apparel Rack C", "score": 45.2, "status": "Normal"},
+        {"id": "P003", "name": "Promotional Stand E", "score": 35.0, "status": "Warning"},
+        {"id": "P004", "name": "Grocery Shelf B", "score": 24.5, "status": "Critical"},
+        {"id": "P005", "name": "Electronics Display A", "score": 6.8, "status": "Critical"}
+    ]
 
-    for zone in summary:
-        # Alert 1: Traffic Congestion / Bottleneck
-        if zone.total_shoppers >= 20:
-            alerts.append({
-                "severity": "CRITICAL",
-                "zone_id": zone.zone_id,
-                "type": "Traffic Congestion Spike",
-                "message": f"Zone {zone.zone_id} has high traffic ({zone.total_shoppers} shoppers). Risk of aisle overcrowding.",
-                "action": "Deploy floor staff to assist shoppers or clear aisle."
-            })
-
-        # Alert 2: "Ghost Dwell" (High dwell time, but shoppers aren't looking at products)
-        if zone.avg_dwell_sec > 15.0 and zone.avg_gaze_sec < 2.0:
-            alerts.append({
-                "severity": "WARNING",
-                "zone_id": zone.zone_id,
-                "type": "Low Attention Bottleneck",
-                "message": f"Zone {zone.zone_id} shoppers dwell for {zone.avg_dwell_sec}s but look for only {zone.avg_gaze_sec}s.",
-                "action": "Signage is ineffective or product packaging lacks visibility."
-            })
+    # Filter products that drop below score 30
+    alerts = [
+        {
+            "product_id": p["id"],
+            "product_name": p["name"],
+            "score": p["score"],
+            "level": p["status"],
+            "message": f"CRITICAL ATTENTION ALERT: Score dropped to {p['score']}!"
+        }
+        for p in products if p["score"] < 30.0
+    ]
 
     return {
-        "status": "active_monitoring",
-        "total_alerts": len(alerts),
+        "total_active_alerts": len(alerts),
         "alerts": alerts
     }
 
@@ -315,7 +311,7 @@ def export_executive_summary(db: Session = Depends(get_db)):
     """
     summary = get_zone_summary(db=db)
     attractiveness = get_product_attractiveness(db=db)
-    alerts = get_retail_anomalies(db=db)
+    alerts = get_alerts()
 
     top_product = attractiveness[0] if attractiveness else None
 
