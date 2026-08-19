@@ -27,7 +27,7 @@ users_db = {}
 class UserAuth(BaseModel):
     email: str
     password: str
-    role: str  # Removed default "Store Manager" fallback
+    role: str = "Store Manager"
 
 
 @app.post("/auth/register")
@@ -43,10 +43,14 @@ def login(user: UserAuth):
     existing = users_db.get(user.email)
     if existing and existing["password"] == user.password:
         return {"access_token": "jwt-token-12345", "role": existing["role"], "email": user.email}
-    # Return passed role if user wasn't pre-registered in memory
     return {"access_token": "jwt-token-12345", "role": user.role, "email": user.email}
 
 
+# ---------------------------------------------------------------------------
+# PDF EXPORT — must be declared BEFORE the generic /{service}/{path} catch-all
+# route below, otherwise FastAPI will match /api/analytics/export/pdf against
+# the catch-all first (service="api" isn't in SERVICE_MAP -> "Unknown service").
+# ---------------------------------------------------------------------------
 @app.get("/api/analytics/export/pdf")
 async def export_pdf(role: str = ""):
     try:
@@ -87,12 +91,19 @@ async def export_pdf(role: str = ""):
             spaceAfter=6
         )
 
-        # 1. STORE MANAGER ONLY
-        if role == "Store Manager":
-            story.append(Paragraph("Store Manager Report — Floor Heatmaps & Inventory Alerts", title_style))
-            story.append(Paragraph("Aggregated analytical breakdown covering Store Operations, Product Merchandising, and Marketing Saliency.", subtitle_style))
-            story.append(Paragraph("Floor Heatmaps & Operational Inventory Alerts", section_style))
+        role_titles = {
+            "Store Manager": "Store Manager Report — Floor Heatmaps & Inventory Alerts",
+            "Retail Analyst": "Retail Analyst Report — Product Attractiveness & Cross-Merchandising",
+            "Marketing Manager": "Marketing Manager Report — Campaign Saliency & Demographics",
+        }
+        doc_title = role_titles.get(role, "Consumer Attention Mapping — Multi-Role Executive Report")
 
+        story.append(Paragraph(doc_title, title_style))
+        story.append(Paragraph("Aggregated analytical breakdown covering Store Operations, Product Merchandising, and Marketing Saliency.", subtitle_style))
+
+        # Store Manager Data
+        if role == "Store Manager" or role == "":
+            story.append(Paragraph("Floor Heatmaps & Operational Inventory Alerts", section_style))
             sm_data = [
                 ['Shelf Zone', 'Attention Rate', 'Footfall Status', 'Operational Action Required'],
                 ['Zone A (Eye Level)', '94%', 'High Density', 'Optimal Stock Level'],
@@ -109,13 +120,11 @@ async def export_pdf(role: str = ""):
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ]))
             story.append(t1)
+            story.append(Spacer(1, 10))
 
-        # 2. RETAIL ANALYST ONLY
-        elif role == "Retail Analyst":
-            story.append(Paragraph("Retail Analyst Report — Product Attractiveness & Cross-Merchandising", title_style))
-            story.append(Paragraph("Aggregated analytical breakdown covering Store Operations, Product Merchandising, and Marketing Saliency.", subtitle_style))
+        # Retail Analyst Data
+        if role == "Retail Analyst" or role == "":
             story.append(Paragraph("Product Attractiveness & Cross-Merchandising Lifts", section_style))
-
             ra_data = [
                 ['Product Name', 'Shelf Zone', 'Gaze Count', 'Attractiveness', 'Cross-Merchandising Strategy'],
                 ['Wireless Headphones', 'Eye Level', '412', '98 / 100', 'Expand Facing (+20 units)'],
@@ -133,13 +142,11 @@ async def export_pdf(role: str = ""):
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ]))
             story.append(t2)
+            story.append(Spacer(1, 10))
 
-        # 3. MARKETING MANAGER ONLY
-        elif role == "Marketing Manager":
-            story.append(Paragraph("Marketing Manager Report — Campaign A/B Visual Saliency", title_style))
-            story.append(Paragraph("Aggregated analytical breakdown covering Store Operations, Product Merchandising, and Marketing Saliency.", subtitle_style))
+        # Marketing Manager Data
+        if role == "Marketing Manager" or role == "":
             story.append(Paragraph("Campaign A/B Visual Saliency & Demographics", section_style))
-
             mm_data = [
                 ['Display Variant', 'Visual Saliency Score', 'Avg Dwell Duration', 'Demographic Impact'],
                 ['Variant A (Neon Header)', '78.4% (+24% Lift)', '18.2 seconds', 'Age 18 - 28 (High Engagement)'],
@@ -156,43 +163,26 @@ async def export_pdf(role: str = ""):
             ]))
             story.append(t3)
 
-        # DEFAULT FALLBACK (IF NO MATCH)
-        else:
-            story.append(Paragraph("Consumer Attention Mapping — Multi-Role Executive Report", title_style))
-            story.append(Paragraph("Aggregated analytical breakdown covering Store Operations, Product Merchandising, and Marketing Saliency.", subtitle_style))
-
-            story.append(Paragraph("1. Store Manager: Floor Heatmaps & Operational Inventory Alerts", section_style))
-            sm_data = [
-                ['Shelf Zone', 'Attention Rate', 'Footfall Status', 'Operational Action Required'],
-                ['Zone A (Eye Level)', '94%', 'High Density', 'Optimal Stock Level'],
-                ['Zone B (Touch Level)', '62%', 'Moderate Density', 'Restock Alert: Wireless Headphones (< 5 units)'],
-                ['Zone C (Knee Level)', '18%', 'Low Density', 'Misplaced Alert: Dark Chocolate in Electronics Tier']
-            ]
-            t1 = Table(sm_data, colWidths=[110, 85, 95, 250])
-            t1.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E293B')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-                ('FONTSIZE', (0, 0), (-1, -1), 8),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ]))
-            story.append(t1)
-
         doc.build(story)
         pdf_data = buffer.getvalue()
         buffer.close()
 
-        filename_role = role.replace(" ", "_") if role else "Executive"
+        filename_role = role.replace(" ", "_") if role else "Full"
         return Response(
             content=pdf_data,
             media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={filename_role}_Report.pdf"}
+            headers={"Content-Disposition": f"attachment; filename=Attention_Analytics_{filename_role}_Report.pdf"}
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating PDF: {str(e)}")
 
 
+# ---------------------------------------------------------------------------
+# Generic proxy — routes to the single backend container.
+# NOTE: this only works for JSON responses (uses resp.json()). If you later
+# need to proxy binary responses (files, PDFs, images) through this catch-all,
+# switch to streaming the raw bytes + original headers instead of resp.json().
+# ---------------------------------------------------------------------------
 SERVICE_MAP = {
     "scoring": "http://backend:8008",
     "auth": "http://backend:8008",
