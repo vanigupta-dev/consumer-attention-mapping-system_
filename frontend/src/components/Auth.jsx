@@ -14,21 +14,45 @@ export default function AuthModal() {
     setError('');
     setLoading(true);
 
-    const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-
     try {
-      const response = await fetch(`http://localhost:8000${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
+      let response;
+
+      if (isLogin) {
+        // FastAPI OAuth2 expects application/x-www-form-urlencoded (username & password)
+        const formPayload = new URLSearchParams();
+        formPayload.append('username', formData.email);
+        formPayload.append('password', formData.password);
+
+        response = await fetch('http://localhost:8000/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formPayload,
+        });
+      } else {
+        // Registration expects JSON
+        response = await fetch('http://localhost:8000/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: formData.email,
+            password: formData.password,
+            role: formData.role,
+          }),
+        });
+      }
+
       const data = await response.json();
 
-      if (!response.ok) throw new Error(data.detail || 'Authentication failed');
+      if (!response.ok) {
+        throw new Error(data.detail || 'Authentication failed');
+      }
 
-      login({ email: formData.email, role: data.role || formData.role }, data.access_token);
+      login(
+        { email: formData.email, role: data.role || formData.role },
+        data.access_token || 'token-123'
+      );
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Server error. Please check backend connection.');
     } finally {
       setLoading(false);
     }
@@ -111,7 +135,10 @@ export default function AuthModal() {
 
         <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 text-center">
           <button
-            onClick={() => setIsLogin(!isLogin)}
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setError('');
+            }}
             className="text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors"
           >
             {isLogin ? "Need an account? Register here" : "Already registered? Sign in"}

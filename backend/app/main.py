@@ -109,14 +109,14 @@ app = FastAPI(
 # Enable CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(store.router, prefix="/api/store", tags=["Store Analytics"])
+app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+app.include_router(store.router, prefix="/store", tags=["Store Analytics"])
 app.include_router(analytics.router)
 
 @app.get("/api/analytics/dwell-logs", tags=["Analytics & Intelligence"])
