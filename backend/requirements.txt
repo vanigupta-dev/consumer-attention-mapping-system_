@@ -16,4 +16,4 @@ ultralytics
 python-dotenv
 protobuf>=3.11,<4.0.0
 reportlab
-email-validator
+email-validator>=2.0

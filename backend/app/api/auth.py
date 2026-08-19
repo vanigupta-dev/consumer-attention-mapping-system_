@@ -6,32 +6,51 @@ from app.core import security
 from app.models import models
 from pydantic import BaseModel, EmailStr
 from typing import cast
+import bcrypt
 
 router = APIRouter()
+# In-memory fallback dictionary if database isn't attached yet
+users_db = {}
 
-class UserRegisterSchema(BaseModel):
+class UserRegister(BaseModel):
     email: EmailStr
     password: str
-    role: str = "StoreManager"
+    role: str = "Store Manager"
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 @router.post("/register")
-def register(user_data: UserRegisterSchema, db: Session = Depends(get_db)):
-    if db.query(models.User).filter(models.User.email == user_data.email).first():
-        raise HTTPException(status_code=400, detail="Account already registered under this email")
+def register(user: UserRegister):
+    if user.email in users_db:
+        raise HTTPException(status_code=400, detail="User already registered")
 
-    hashed = security.hash_password(user_data.password)
-    new_user = models.User(email=user_data.email, hashed_password=hashed, role=user_data.role)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return {"id": new_user.id, "email": new_user.email, "role": new_user.role, "is_active": True}
+    users_db[user.email] = {
+        "password_hash": hash_password(user.password),
+        "role": user.role
+    }
+    return {
+        "access_token": f"token-{user.email}",
+        "token_type": "bearer",
+        "email": user.email,
+        "role": user.role
+    }
 
 @router.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.email == form_data.username).first()
-    # ensure user and hashed_password exist before calling verify_password
-    if user is None or getattr(user, "hashed_password", None) is None or not security.verify_password(form_data.password, cast(str, getattr(user, "hashed_password"))):
-        raise HTTPException(status_code=401, detail="Invalid credential validation profiles")
+def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = users_db.get(form_data.username)
 
-    token = security.create_access_token(data={"sub": user.email, "role": user.role})
-    return {"access_token": token, "token_type": "bearer"}
+    if not user or not verify_password(form_data.password, user["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+        )
+
+    return {
+        "access_token": f"token-{form_data.username}",
+        "token_type": "bearer",
+        "role": user["role"]
+    }
