@@ -28,9 +28,16 @@ function MainDashboard() {
   const [dwellThreshold, setDwellThreshold] = useState(10);
   const [selectedHour, setSelectedHour] = useState('All Day');
 
+  const activeRole = user?.role || 'Guest';
+
   const handleDownloadPDF = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/analytics/export/pdf');
+      if (!user?.role) {
+        alert("No user role detected. Please log out and log back in.");
+        return;
+      }
+
+      const response = await fetch(`http://127.0.0.1:8000/api/analytics/export/pdf?role=${encodeURIComponent(user.role)}`);
       if (!response.ok) throw new Error('Failed to generate PDF on server');
 
       const contentType = response.headers.get('content-type');
@@ -43,7 +50,8 @@ function MainDashboard() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'Attention_Analytics_Report.pdf';
+      const formattedRole = user.role.replace(/\s+/g, '_');
+      link.download = `${formattedRole}_Report.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -70,7 +78,7 @@ function MainDashboard() {
               <span>Account: <strong className="text-slate-200">{user?.email}</strong></span>
               <span>•</span>
               <span className="inline-flex items-center gap-1 text-blue-400 font-medium">
-                <Shield className="w-3.5 h-3.5" /> {user?.role}
+                <Shield className="w-3.5 h-3.5" /> {activeRole}
               </span>
             </p>
           </div>
@@ -83,10 +91,10 @@ function MainDashboard() {
               onClick={handleDownloadPDF}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-lg shadow-blue-600/20 cursor-pointer transition-all"
             >
-              <Download className="w-4 h-4" /> Export Full PDF Report
+              <Download className="w-4 h-4" /> Export {activeRole} PDF Report
             </button>
             <span className="text-[10px] text-slate-400">
-              Includes: Heatmaps, Inventory Alerts, ROI Matrix & A/B Campaign Data
+              Generating tailored table for {activeRole}
             </span>
           </div>
 
@@ -155,8 +163,73 @@ function MainDashboard() {
         </div>
       </div>
 
+      {/* PDF REPORT DATA PREVIEW CARD */}
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <Download className="w-4 h-4 text-blue-400" /> Dedicated PDF Export Dataset for {activeRole}
+          </h3>
+          <span className="text-[11px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2.5 py-0.5 rounded-full font-medium">
+            Auto-Generated in Report
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          {activeRole === 'Store Manager' && (
+            <>
+              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                <p className="font-bold text-white mb-1">Floor Spatial Heatmaps</p>
+                <p className="text-[11px] text-slate-400">Ranks Zone A/B/C performance to optimize immediate floor layouts.</p>
+              </div>
+              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                <p className="font-bold text-white mb-1">Inventory & Misplacement Alerts</p>
+                <p className="text-[11px] text-slate-400">Triggers restocking priorities for high-gaze, low-stock items.</p>
+              </div>
+              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                <p className="font-bold text-white mb-1">Hourly Dwell & Footfall Log</p>
+                <p className="text-[11px] text-slate-400">Assists staff scheduling during peak 3 PM – 5 PM traffic windows.</p>
+              </div>
+            </>
+          )}
+
+          {activeRole === 'Retail Analyst' && (
+            <>
+              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                <p className="font-bold text-white mb-1">Attractiveness & Conversion Matrix</p>
+                <p className="text-[11px] text-slate-400">Informs long-term shelf space allocation based on gaze duration.</p>
+              </div>
+              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                <p className="font-bold text-white mb-1">Planogram ROI & Eye-Level Stats</p>
+                <p className="text-[11px] text-slate-400">Validates product placement efficiency across premium shelf tiers.</p>
+              </div>
+              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                <p className="font-bold text-white mb-1">Cross-Merchandising Lifts</p>
+                <p className="text-[11px] text-slate-400">Identifies high-converting product pairings (+88% co-gaze lift).</p>
+              </div>
+            </>
+          )}
+
+          {activeRole === 'Marketing Manager' && (
+            <>
+              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                <p className="font-bold text-white mb-1">A/B Visual Saliency Comparison</p>
+                <p className="text-[11px] text-slate-400">Measures visual campaign effectiveness between Display A and B.</p>
+              </div>
+              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                <p className="font-bold text-white mb-1">Demographic Attention Scores</p>
+                <p className="text-[11px] text-slate-400">Aligns visual display content with target buyer age demographics.</p>
+              </div>
+              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                <p className="font-bold text-white mb-1">Promo Engagement Rates</p>
+                <p className="text-[11px] text-slate-400">Calculates banner conversion metrics and average gaze duration.</p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* 1. STORE MANAGER DASHBOARD MODULE */}
-      {user?.role === 'Store Manager' && (
+      {activeRole === 'Store Manager' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 bg-slate-800 border border-slate-700 rounded-2xl p-6">
@@ -223,7 +296,7 @@ function MainDashboard() {
       )}
 
       {/* 2. RETAIL ANALYST DASHBOARD MODULE */}
-      {user?.role === 'Retail Analyst' && (
+      {activeRole === 'Retail Analyst' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 bg-slate-800 border border-slate-700 rounded-2xl p-6">
@@ -282,7 +355,7 @@ function MainDashboard() {
       )}
 
       {/* 3. MARKETING MANAGER DASHBOARD MODULE */}
-      {user?.role === 'Marketing Manager' && (
+      {activeRole === 'Marketing Manager' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 bg-slate-800 border border-slate-700 rounded-2xl p-6">
