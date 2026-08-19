@@ -461,59 +461,61 @@ def estimate_revenue_leakage(avg_product_price: float = 25.0, db: Session = Depe
 
 
 @router.get("/export/pdf")
-def export_pdf_report():
-    try:
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-        story = []
-        styles = getSampleStyleSheet()
+async def export_pdf_report():
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36
+    )
+    story = []
 
-        # Title
-        title_style = ParagraphStyle(
-            'ReportTitle',
-            parent=styles['Heading1'],
-            fontSize=20,
-            leading=24,
-            textColor=colors.HexColor('#1E293B'),
-            spaceAfter=12
-        )
-        story.append(Paragraph("Consumer Attention Mapping Analytics Report", title_style))
-        story.append(Spacer(1, 12))
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor('#1E293B'),
+        spaceAfter=14
+    )
 
-        # Updated table columns including Conversion Rate (%)
-        data = [
-            ["Rank", "Product / Display", "Gaze Duration", "Interactions", "Pickup Rate", "Conversion Rate", "Composite Score"],
-            ["#1", "Checkout Counter D", "139.8s", "6", "67%", "42%", "61 / 100"],
-            ["#2", "Apparel Rack C", "8.6s", "21", "50%", "33%", "45.2 / 100"],
-            ["#3", "Promotional Stand E", "34.6s", "8", "58%", "25%", "35 / 100"],
-            ["#4", "Grocery Shelf B", "5s", "8", "46%", "18%", "24.5 / 100"],
-            ["#5", "Electronics Display A", "13.5s", "2", "3%", "1%", "6.8 / 100"]
-        ]
+    story.append(Paragraph("Consumer Attention Mapping — Analytics Report", title_style))
+    story.append(Spacer(1, 10))
 
-         # Table Styling
-        table = Table(data, colWidths=[35, 125, 75, 70, 75, 85, 85])
+    table_data = [
+        ['Metric / Zone', 'Value', 'Status'],
+        ['Top Hotspot', 'Zone A (Eye Level)', '94% Engagement'],
+        ['Peak Dwell Hours', '03:00 PM - 05:00 PM', '185 Visitors Peak'],
+        ['Avg Attractiveness', '94 / 100', 'High Conversion'],
+    ]
 
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8FAFC')),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ]))
+    t = Table(table_data, colWidths=[180, 160, 180])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2563EB')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,0), 10),
+        ('BOTTOMPADDING', (0,0), (-1,0), 8),
+        ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#F8FAFC')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+        ('FONTSIZE', (0,1), (-1,-1), 9),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
 
-        story.append(table)
-        doc.build(story)
+    story.append(t)
 
-        buffer.seek(0)
-        return StreamingResponse(
-            buffer,
-            media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=Consumer_Attention_Report.pdf"}
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+    # Build PDF into memory buffer
+    doc.build(story)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "attachment; filename=Attention_Analytics_Report.pdf"
+        }
+    )
